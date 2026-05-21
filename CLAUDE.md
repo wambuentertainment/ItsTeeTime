@@ -7,7 +7,7 @@ A local web application that monitors golf course booking websites to detect whe
 ```bash
 source venv/bin/activate
 python app.py
-# Open http://localhost:5000
+# Open http://localhost:8080
 ```
 
 ## Architecture
