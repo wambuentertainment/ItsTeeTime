@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}{{ course.name }} — It's Tee Time{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="/" class="text-muted text-decoration-none small">
+        <i class="bi bi-arrow-left me-1"></i>Dashboard
+    </a>
+    <div class="d-flex justify-content-between align-items-start mt-2 flex-wrap gap-2">
+        <div>
+            <h2 class="mb-0">{{ course.name }}</h2>
+            <a href="{{ course.url }}" target="_blank" rel="noopener" class="text-muted small">
+                <i class="bi bi-box-arrow-up-right me-1"></i>{{ course.url }}
+            </a>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <form method="POST" action="/courses/{{ course.id }}/check">
+                <button class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Check Now
+                </button>
+            </form>
+            <form method="POST" action="/courses/{{ course.id }}/toggle">
+                {% if course.active %}
+                    <button class="btn btn-outline-warning btn-sm">
+                        <i class="bi bi-pause-fill me-1"></i>Pause
+                    </button>
+                {% else %}
+                    <button class="btn btn-outline-success btn-sm">
+                        <i class="bi bi-play-fill me-1"></i>Enable
+                    </button>
+                {% endif %}
+            </form>
+            <form method="POST" action="/courses/{{ course.id }}/delete"
+                  onsubmit="return confirm('Remove {{ course.name }}? All data will be deleted.')">
+                <button class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-trash me-1"></i>Remove
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Stats row -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-sm-3">
+        <div class="card text-center py-3">
+            <div class="fs-2 fw-bold text-warning">{{ events|length }}</div>
+            <div class="text-muted small">Release Events</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-3">
+        <div class="card text-center py-3">
+            <div class="fs-2 fw-bold text-primary">{{ snapshots|length }}</div>
+            <div class="text-muted small">Checks Run</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-3">
+        <div class="card text-center py-3">
+            <div class="fs-2 fw-bold">{{ course.check_interval_minutes }}m</div>
+            <div class="text-muted small">Check Interval</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-3">
+        <div class="card text-center py-3">
+            <div class="fs-2 fw-bold
+                {% if course.last_check_status == 'ok' %}text-success
+                {% elif course.last_check_status == 'error' %}text-danger
+                {% else %}text-warning{% endif %}">
+                {{ course.last_check_status | upper }}
+            </div>
+            <div class="text-muted small">Last Status</div>
+        </div>
+    </div>
+</div>
+
+<!-- Pattern summary -->
+{% if events|length >= 2 %}
+<div class="card mb-4 border-0" style="background: #d4edda;">
+    <div class="card-body py-3">
+        <i class="bi bi-graph-up-arrow me-2 text-success"></i>
+        <strong>Detected Pattern:</strong> {{ course.release_pattern_summary() }}
+        <span class="text-muted small ms-2">(based on {{ events|length }} events)</span>
+    </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+    <!-- Release Events -->
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header bg-white fw-semibold">
+                <i class="bi bi-lightning-charge-fill text-warning me-1"></i>Release Events
+            </div>
+            {% if events %}
+            <ul class="list-group list-group-flush">
+                {% for event in events %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <span class="text-success fw-semibold small">
+                            <i class="bi bi-plus-circle-fill me-1"></i>{{ event.new_slot_count }} new slot{% if event.new_slot_count != 1 %}s{% endif %}
+                        </span>
+                        <span class="text-muted" style="font-size: 0.75rem;">
+                            {{ event.detected_at.strftime('%b %d, %Y %H:%M') }}
+                        </span>
+                    </div>
+                    {% if event.new_slots %}
+                    <div class="text-muted mt-1" style="font-size: 0.75rem;">
+                        {{ event.new_slots[:3] | join(', ') }}{% if event.new_slots | length > 3 %} + {{ event.new_slots | length - 3 }} more{% endif %}
+                    </div>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="card-body text-center text-muted py-4">
+                <i class="bi bi-hourglass me-1"></i>No release events detected yet
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Check History -->
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header bg-white fw-semibold">
+                <i class="bi bi-clock-history me-1"></i>Check History
+            </div>
+            {% if snapshots %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Checked At</th>
+                            <th class="text-center">Slots</th>
+                            <th class="text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for snap in snapshots %}
+                        <tr>
+                            <td class="text-muted small">{{ snap.checked_at.strftime('%b %d, %Y %H:%M') }}</td>
+                            <td class="text-center">{{ snap.slot_count }}</td>
+                            <td class="text-center">
+                                {% if snap.scrape_success %}
+                                    <span class="badge bg-success">OK</span>
+                                {% else %}
+                                    <span class="badge bg-danger" title="{{ snap.error_message }}">Error</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="card-body text-center text-muted py-4">
+                No checks run yet
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
