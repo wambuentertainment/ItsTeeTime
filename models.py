@@ -5,6 +5,8 @@ import json
 
 db = SQLAlchemy()
 
+DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
 
 class GolfCourse(db.Model):
     __tablename__ = "golf_courses"
@@ -17,6 +19,11 @@ class GolfCourse(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_checked_at = db.Column(db.DateTime, nullable=True)
     last_check_status = db.Column(db.String(20), default="pending")
+
+    # Desired tee time window
+    desired_start_time = db.Column(db.String(10), nullable=True)   # "08:00"
+    desired_end_time = db.Column(db.String(10), nullable=True)     # "10:00"
+    desired_days = db.Column(db.String(100), default="")           # "Saturday,Sunday" or "" = any day
 
     snapshots = db.relationship(
         "TeeTimeSnapshot",
@@ -32,6 +39,27 @@ class GolfCourse(db.Model):
         cascade="all, delete-orphan",
         order_by="ReleaseEvent.detected_at.desc()",
     )
+    alerts = db.relationship(
+        "TeeTimeAlert",
+        backref="course",
+        lazy=True,
+        cascade="all, delete-orphan",
+        order_by="TeeTimeAlert.detected_at.desc()",
+    )
+
+    @property
+    def desired_days_list(self):
+        if not self.desired_days:
+            return []
+        return [d for d in self.desired_days.split(",") if d]
+
+    @property
+    def has_time_preference(self):
+        return bool(self.desired_start_time and self.desired_end_time)
+
+    @property
+    def active_alerts(self):
+        return [a for a in self.alerts if not a.dismissed]
 
     def release_pattern_summary(self):
         if len(self.release_events) < 2:
@@ -80,3 +108,22 @@ class ReleaseEvent(db.Model):
     @new_slots.setter
     def new_slots(self, value):
         self._new_slots = json.dumps(value)
+
+
+class TeeTimeAlert(db.Model):
+    __tablename__ = "tee_time_alerts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.Integer, db.ForeignKey("golf_courses.id"), nullable=False)
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    _matched_slots = db.Column("matched_slots", db.Text, default="[]")
+    dismissed = db.Column(db.Boolean, default=False)
+    dismissed_at = db.Column(db.DateTime, nullable=True)
+
+    @property
+    def matched_slots(self):
+        return json.loads(self._matched_slots or "[]")
+
+    @matched_slots.setter
+    def matched_slots(self, value):
+        self._matched_slots = json.dumps(value)

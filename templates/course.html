@@ -15,6 +15,9 @@
             </a>
         </div>
         <div class="d-flex gap-2 flex-wrap">
+            <a href="/courses/{{ course.id }}/edit" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-pencil me-1"></i>Edit
+            </a>
             <form method="POST" action="/courses/{{ course.id }}/check">
                 <button class="btn btn-outline-primary btn-sm">
                     <i class="bi bi-arrow-clockwise me-1"></i>Check Now
@@ -22,26 +25,74 @@
             </form>
             <form method="POST" action="/courses/{{ course.id }}/toggle">
                 {% if course.active %}
-                    <button class="btn btn-outline-warning btn-sm">
-                        <i class="bi bi-pause-fill me-1"></i>Pause
-                    </button>
+                    <button class="btn btn-outline-warning btn-sm"><i class="bi bi-pause-fill me-1"></i>Pause</button>
                 {% else %}
-                    <button class="btn btn-outline-success btn-sm">
-                        <i class="bi bi-play-fill me-1"></i>Enable
-                    </button>
+                    <button class="btn btn-outline-success btn-sm"><i class="bi bi-play-fill me-1"></i>Enable</button>
                 {% endif %}
             </form>
             <form method="POST" action="/courses/{{ course.id }}/delete"
                   onsubmit="return confirm('Remove {{ course.name }}? All data will be deleted.')">
-                <button class="btn btn-outline-danger btn-sm">
-                    <i class="bi bi-trash me-1"></i>Remove
-                </button>
+                <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash me-1"></i>Remove</button>
             </form>
         </div>
     </div>
 </div>
 
-<!-- Stats row -->
+{# ── Active alerts ── #}
+{% set active = alerts | selectattr('dismissed', 'equalto', false) | list %}
+{% if active %}
+<div class="mb-4">
+    {% for alert in active %}
+    <div class="card border-success mb-2" style="border-width: 2px;">
+        <div class="card-body d-flex flex-wrap align-items-center gap-3">
+            <div class="flex-grow-1">
+                <span class="fw-bold text-success">
+                    <i class="bi bi-bell-fill me-1"></i>Matching tee time available!
+                </span>
+                <span class="text-muted small ms-2">{{ alert.detected_at.strftime('%b %d at %H:%M') }}</span>
+                {% if alert.matched_slots %}
+                <div class="mt-1 small text-success">{{ alert.matched_slots | join(', ') }}</div>
+                {% endif %}
+            </div>
+            <a href="{{ course.url }}" target="_blank" rel="noopener" class="btn btn-success btn-lg px-4">
+                <i class="bi bi-box-arrow-up-right me-2"></i>Book Now
+            </a>
+            <form method="POST" action="/alerts/{{ alert.id }}/dismiss">
+                <button class="btn btn-outline-secondary btn-sm">Dismiss</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{# ── Desired window ── #}
+{% if course.has_time_preference %}
+<div class="card mb-4 border-0" style="background: #eafaf1;">
+    <div class="card-body py-3 d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-alarm me-2 text-success"></i>
+            <strong>Target window:</strong>
+            {{ course.desired_start_time }} – {{ course.desired_end_time }}
+            {% if course.desired_days %}
+                &nbsp;·&nbsp; {{ course.desired_days.replace(',', ', ') }}
+            {% else %}
+                &nbsp;·&nbsp; Any day
+            {% endif %}
+        </div>
+        <a href="/courses/{{ course.id }}/edit" class="btn btn-sm btn-outline-success">Change</a>
+    </div>
+</div>
+{% else %}
+<div class="card mb-4 border-0 bg-light">
+    <div class="card-body py-3 d-flex justify-content-between align-items-center">
+        <span class="text-muted small">No time window set — alerts are disabled for this course.</span>
+        <a href="/courses/{{ course.id }}/edit" class="btn btn-sm btn-outline-secondary">Set Window</a>
+    </div>
+</div>
+{% endif %}
+
+{# ── Stats ── #}
 <div class="row g-3 mb-4">
     <div class="col-6 col-sm-3">
         <div class="card text-center py-3">
@@ -51,14 +102,14 @@
     </div>
     <div class="col-6 col-sm-3">
         <div class="card text-center py-3">
-            <div class="fs-2 fw-bold text-primary">{{ snapshots|length }}</div>
-            <div class="text-muted small">Checks Run</div>
+            <div class="fs-2 fw-bold text-success">{{ active|length }}</div>
+            <div class="text-muted small">Active Alerts</div>
         </div>
     </div>
     <div class="col-6 col-sm-3">
         <div class="card text-center py-3">
-            <div class="fs-2 fw-bold">{{ course.check_interval_minutes }}m</div>
-            <div class="text-muted small">Check Interval</div>
+            <div class="fs-2 fw-bold text-primary">{{ snapshots|length }}</div>
+            <div class="text-muted small">Checks Run</div>
         </div>
     </div>
     <div class="col-6 col-sm-3">
@@ -74,19 +125,17 @@
     </div>
 </div>
 
-<!-- Pattern summary -->
-{% if events|length >= 2 %}
-<div class="card mb-4 border-0" style="background: #d4edda;">
+{% if course.release_events|length >= 2 %}
+<div class="card mb-3 border-0" style="background: #d4edda;">
     <div class="card-body py-3">
         <i class="bi bi-graph-up-arrow me-2 text-success"></i>
-        <strong>Detected Pattern:</strong> {{ course.release_pattern_summary() }}
+        <strong>Release pattern:</strong> {{ course.release_pattern_summary() }}
         <span class="text-muted small ms-2">(based on {{ events|length }} events)</span>
     </div>
 </div>
 {% endif %}
 
 <div class="row g-3">
-    <!-- Release Events -->
     <div class="col-md-5">
         <div class="card">
             <div class="card-header bg-white fw-semibold">
@@ -120,7 +169,6 @@
         </div>
     </div>
 
-    <!-- Check History -->
     <div class="col-md-7">
         <div class="card">
             <div class="card-header bg-white fw-semibold">
@@ -154,9 +202,7 @@
                 </table>
             </div>
             {% else %}
-            <div class="card-body text-center text-muted py-4">
-                No checks run yet
-            </div>
+            <div class="card-body text-center text-muted py-4">No checks run yet</div>
             {% endif %}
         </div>
     </div>

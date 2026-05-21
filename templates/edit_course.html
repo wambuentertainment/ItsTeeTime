@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}Add Course — It's Tee Time{% endblock %}
+{% block title %}Edit {{ course.name }} — It's Tee Time{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-7 col-lg-6">
         <div class="card">
-            <div class="card-header bg-success text-white py-3">
-                <h4 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Add Golf Course</h4>
+            <div class="card-header bg-primary text-white py-3">
+                <h4 class="mb-0"><i class="bi bi-pencil me-2"></i>Edit {{ course.name }}</h4>
             </div>
             <div class="card-body p-4">
                 <form method="POST">
@@ -15,23 +15,22 @@
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Course Name</label>
                         <input type="text" name="name" class="form-control"
-                               placeholder="e.g. Pebble Beach Golf Links" required autofocus>
+                               value="{{ course.name }}" required>
                     </div>
 
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Tee Time Booking URL</label>
                         <input type="text" name="url" class="form-control"
-                               placeholder="https://..." required>
-                        <div class="form-text">Paste the URL of the tee time booking or availability page.</div>
+                               value="{{ course.url }}">
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label fw-semibold">Check Frequency</label>
                         <select name="interval" class="form-select">
-                            <option value="30">Every 30 minutes</option>
-                            <option value="60" selected>Every 1 hour</option>
-                            <option value="120">Every 2 hours</option>
-                            <option value="360">Every 6 hours</option>
+                            <option value="30" {% if course.check_interval_minutes == 30 %}selected{% endif %}>Every 30 minutes</option>
+                            <option value="60" {% if course.check_interval_minutes == 60 %}selected{% endif %}>Every 1 hour</option>
+                            <option value="120" {% if course.check_interval_minutes == 120 %}selected{% endif %}>Every 2 hours</option>
+                            <option value="360" {% if course.check_interval_minutes == 360 %}selected{% endif %}>Every 6 hours</option>
                         </select>
                     </div>
 
@@ -42,11 +41,13 @@
                     <div class="row g-3 mb-3">
                         <div class="col-6">
                             <label class="form-label">Earliest Time</label>
-                            <input type="time" name="desired_start_time" class="form-control" value="08:00">
+                            <input type="time" name="desired_start_time" class="form-control"
+                                   value="{{ course.desired_start_time or '08:00' }}">
                         </div>
                         <div class="col-6">
                             <label class="form-label">Latest Time</label>
-                            <input type="time" name="desired_end_time" class="form-control" value="10:00">
+                            <input type="time" name="desired_end_time" class="form-control"
+                                   value="{{ course.desired_end_time or '10:00' }}">
                         </div>
                     </div>
 
@@ -56,7 +57,8 @@
                             {% for day in days %}
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="checkbox"
-                                       name="desired_days" value="{{ day }}" id="day_{{ day }}">
+                                       name="desired_days" value="{{ day }}" id="day_{{ day }}"
+                                       {% if day in course.desired_days_list %}checked{% endif %}>
                                 <label class="form-check-label" for="day_{{ day }}">{{ day[:3] }}</label>
                             </div>
                             {% endfor %}
@@ -64,10 +66,10 @@
                     </div>
 
                     <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-success">
-                            <i class="bi bi-plus-lg me-1"></i>Add Course
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-1"></i>Save Changes
                         </button>
-                        <a href="/" class="btn btn-outline-secondary">Cancel</a>
+                        <a href="/courses/{{ course.id }}" class="btn btn-outline-secondary">Cancel</a>
                     </div>
                 </form>
             </div>

@@ -9,10 +9,10 @@ scheduler = BackgroundScheduler()
 
 
 def check_course(app, course_id):
-    """Check a single course for new tee time slots and record any releases."""
+    """Check a single course for new tee time slots and record any releases or alerts."""
     with app.app_context():
-        from models import db, GolfCourse, TeeTimeSnapshot, ReleaseEvent
-        from scraper import scrape_course
+        from models import db, GolfCourse, TeeTimeSnapshot, ReleaseEvent, TeeTimeAlert
+        from scraper import scrape_course, find_matching_slots
 
         course = db.session.get(GolfCourse, course_id)
         if not course or not course.active:
@@ -36,12 +36,29 @@ def check_course(app, course_id):
         snapshot.available_slots = result["slots"]
 
         if prev and prev.scrape_success and result["success"]:
-            new_slots = set(result["slots"]) - set(prev.available_slots)
+            new_slots = sorted(set(result["slots"]) - set(prev.available_slots))
             if new_slots:
                 event = ReleaseEvent(course_id=course_id, new_slot_count=len(new_slots))
-                event.new_slots = sorted(new_slots)
+                event.new_slots = new_slots
                 db.session.add(event)
                 logger.info("New tee times for %s: %d slots", course.name, len(new_slots))
+
+                # Check if any new slots match the desired time window
+                if course.has_time_preference:
+                    matched = find_matching_slots(
+                        new_slots,
+                        course.desired_start_time,
+                        course.desired_end_time,
+                        course.desired_days_list or None,
+                    )
+                    if matched:
+                        alert = TeeTimeAlert(course_id=course_id)
+                        alert.matched_slots = matched
+                        db.session.add(alert)
+                        logger.info(
+                            "ALERT: %d matching slots for %s: %s",
+                            len(matched), course.name, matched,
+                        )
 
         course.last_checked_at = datetime.utcnow()
         course.last_check_status = "ok" if result["success"] else "error"
