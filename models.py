@@ -20,31 +20,21 @@ class GolfCourse(db.Model):
     last_checked_at = db.Column(db.DateTime, nullable=True)
     last_check_status = db.Column(db.String(20), default="pending")
 
-    # Desired tee time window
-    desired_start_time = db.Column(db.String(10), nullable=True)   # "08:00"
-    desired_end_time = db.Column(db.String(10), nullable=True)     # "10:00"
-    desired_days = db.Column(db.String(100), default="")           # "Saturday,Sunday" or "" = any day
+    desired_start_time = db.Column(db.String(10), nullable=True)
+    desired_end_time = db.Column(db.String(10), nullable=True)
+    desired_days = db.Column(db.String(100), default="")
 
     snapshots = db.relationship(
-        "TeeTimeSnapshot",
-        backref="course",
-        lazy=True,
-        cascade="all, delete-orphan",
-        order_by="TeeTimeSnapshot.checked_at.desc()",
+        "TeeTimeSnapshot", backref="course", lazy=True,
+        cascade="all, delete-orphan", order_by="TeeTimeSnapshot.checked_at.desc()",
     )
     release_events = db.relationship(
-        "ReleaseEvent",
-        backref="course",
-        lazy=True,
-        cascade="all, delete-orphan",
-        order_by="ReleaseEvent.detected_at.desc()",
+        "ReleaseEvent", backref="course", lazy=True,
+        cascade="all, delete-orphan", order_by="ReleaseEvent.detected_at.desc()",
     )
     alerts = db.relationship(
-        "TeeTimeAlert",
-        backref="course",
-        lazy=True,
-        cascade="all, delete-orphan",
-        order_by="TeeTimeAlert.detected_at.desc()",
+        "TeeTimeAlert", backref="course", lazy=True,
+        cascade="all, delete-orphan", order_by="TeeTimeAlert.detected_at.desc()",
     )
 
     @property
@@ -59,7 +49,12 @@ class GolfCourse(db.Model):
 
     @property
     def active_alerts(self):
-        return [a for a in self.alerts if not a.dismissed]
+        from datetime import date
+        today = date.today().isoformat()
+        return [
+            a for a in self.alerts
+            if not a.dismissed and (a.matched_for_date is None or a.matched_for_date >= today)
+        ]
 
     def release_pattern_summary(self):
         if len(self.release_events) < 2:
@@ -116,7 +111,10 @@ class TeeTimeAlert(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     course_id = db.Column(db.Integer, db.ForeignKey("golf_courses.id"), nullable=False)
     detected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Stored as JSON list of dicts: [{time, date, label, url}, ...]
     _matched_slots = db.Column("matched_slots", db.Text, default="[]")
+    # Earliest date covered by this alert ("YYYY-MM-DD"); used for auto-expiry
+    matched_for_date = db.Column(db.String(10), nullable=True)
     dismissed = db.Column(db.Boolean, default=False)
     dismissed_at = db.Column(db.DateTime, nullable=True)
 
@@ -127,3 +125,14 @@ class TeeTimeAlert(db.Model):
     @matched_slots.setter
     def matched_slots(self, value):
         self._matched_slots = json.dumps(value)
+
+    @property
+    def slot_links(self):
+        """Return slots normalised as dicts with time/label/url, handles legacy strings."""
+        result = []
+        for s in self.matched_slots:
+            if isinstance(s, dict):
+                result.append(s)
+            else:
+                result.append({"time": s, "label": "", "date": None, "url": None})
+        return result

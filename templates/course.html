@@ -38,30 +38,43 @@
     </div>
 </div>
 
-{# ── Active alerts ── #}
+{# ── Active alerts with per-slot links ── #}
 {% set active = alerts | selectattr('dismissed', 'equalto', false) | list %}
 {% if active %}
 <div class="mb-4">
     {% for alert in active %}
+    {% set slots = alert.slot_links %}
+    {% if slots and (alert.matched_for_date is none or alert.matched_for_date >= today_str) %}
     <div class="card border-success mb-2" style="border-width: 2px;">
-        <div class="card-body d-flex flex-wrap align-items-center gap-3">
-            <div class="flex-grow-1">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-2">
                 <span class="fw-bold text-success">
-                    <i class="bi bi-bell-fill me-1"></i>Matching tee time available!
+                    <i class="bi bi-bell-fill me-1"></i>
+                    {{ slots|length }} time{{ 's' if slots|length != 1 }} in your window
                 </span>
-                <span class="text-muted small ms-2">{{ alert.detected_at.strftime('%b %d at %H:%M') }}</span>
-                {% if alert.matched_slots %}
-                <div class="mt-1 small text-success">{{ alert.matched_slots | join(', ') }}</div>
-                {% endif %}
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted small">{{ alert.detected_at | cst }}</span>
+                    <form method="POST" action="/alerts/{{ alert.id }}/dismiss">
+                        <button class="btn btn-outline-secondary btn-sm">Dismiss</button>
+                    </form>
+                </div>
             </div>
-            <a href="{{ course.url }}" target="_blank" rel="noopener" class="btn btn-success btn-lg px-4">
-                <i class="bi bi-box-arrow-up-right me-2"></i>Book Now
-            </a>
-            <form method="POST" action="/alerts/{{ alert.id }}/dismiss">
-                <button class="btn btn-outline-secondary btn-sm">Dismiss</button>
-            </form>
+            <div class="d-flex flex-wrap gap-2">
+                {% for slot in slots %}
+                <a href="{{ slot.url or course.url }}" target="_blank" rel="noopener"
+                   class="btn btn-success btn-sm px-3">
+                    <i class="bi bi-clock me-1"></i>
+                    {% if slot.label %}{{ slot.label }} · {% endif %}{{ slot.time }}
+                    <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </a>
+                {% endfor %}
+            </div>
+            <p class="text-muted small mt-2 mb-0">
+                Each button opens the booking page for that date. Select your time on the booking site.
+            </p>
         </div>
     </div>
+    {% endif %}
     {% endfor %}
 </div>
 {% endif %}
@@ -86,7 +99,7 @@
 {% else %}
 <div class="card mb-4 border-0 bg-light">
     <div class="card-body py-3 d-flex justify-content-between align-items-center">
-        <span class="text-muted small">No time window set — alerts are disabled for this course.</span>
+        <span class="text-muted small">No time window set — alerts disabled for this course.</span>
         <a href="/courses/{{ course.id }}/edit" class="btn btn-sm btn-outline-secondary">Set Window</a>
     </div>
 </div>
@@ -150,7 +163,7 @@
                             <i class="bi bi-plus-circle-fill me-1"></i>{{ event.new_slot_count }} new slot{% if event.new_slot_count != 1 %}s{% endif %}
                         </span>
                         <span class="text-muted" style="font-size: 0.75rem;">
-                            {{ event.detected_at.strftime('%b %d, %Y %H:%M') }}
+                            {{ event.detected_at | cst }}
                         </span>
                     </div>
                     {% if event.new_slots %}
@@ -179,7 +192,7 @@
                 <table class="table table-sm table-hover mb-0">
                     <thead class="table-light">
                         <tr>
-                            <th>Checked At</th>
+                            <th>Checked At (CST)</th>
                             <th class="text-center">Slots</th>
                             <th class="text-center">Status</th>
                         </tr>
@@ -187,7 +200,7 @@
                     <tbody>
                         {% for snap in snapshots %}
                         <tr>
-                            <td class="text-muted small">{{ snap.checked_at.strftime('%b %d, %Y %H:%M') }}</td>
+                            <td class="text-muted small">{{ snap.checked_at | cst }}</td>
                             <td class="text-center">{{ snap.slot_count }}</td>
                             <td class="text-center">
                                 {% if snap.scrape_success %}

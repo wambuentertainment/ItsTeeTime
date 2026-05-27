@@ -89,16 +89,14 @@ def scrape_date_url(base_url, target_date):
 
 def upcoming_desired_dates(desired_day_nums, weeks_ahead=3):
     """
-    Return the upcoming dates (date objects) for each desired weekday,
-    looking up to weeks_ahead weeks into the future. Sorted ascending.
+    Return upcoming dates for each desired weekday, including today if it matches.
+    Looks up to weeks_ahead weeks ahead. Sorted ascending.
     """
     today = date.today()
     dates = []
     for day_num in desired_day_nums:
         for week in range(weeks_ahead):
             days_ahead = (day_num - today.weekday()) % 7 + week * 7
-            if days_ahead == 0:
-                days_ahead = 7  # never check today; aim for future availability
             dates.append(today + timedelta(days=days_ahead))
     return sorted(set(dates))
 

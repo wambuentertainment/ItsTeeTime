@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -9,27 +9,18 @@ scheduler = BackgroundScheduler()
 
 
 def check_course(app, course_id):
-    """
-    Check a course for new tee time slots and for slots matching the desired
-    time window. When a match is found, creates a TeeTimeAlert.
-
-    Strategy:
-    - If the URL has a date= param and desired days are set, scrape each upcoming
-      desired day's URL directly (much more reliable than scraping today's page).
-    - Otherwise, scrape the stored URL and compare snapshots for new slots.
-    """
     with app.app_context():
         from models import db, GolfCourse, TeeTimeSnapshot, ReleaseEvent, TeeTimeAlert
         from scraper import (
             scrape_course, scrape_date_url, find_matching_slots,
-            upcoming_desired_dates, has_date_param, _DAY_NAMES,
+            upcoming_desired_dates, has_date_param, _DAY_NAMES, _inject_date,
         )
 
         course = db.session.get(GolfCourse, course_id)
         if not course or not course.active:
             return
 
-        # ── 1. Standard scrape of the stored URL (for change detection) ──
+        # ── Standard scrape for change detection ──────────────────────────────
         result = scrape_course(course.url)
 
         prev = (
@@ -53,78 +44,98 @@ def check_course(app, course_id):
                 event = ReleaseEvent(course_id=course_id, new_slot_count=len(new_slots))
                 event.new_slots = new_slots
                 db.session.add(event)
-                logger.info("New content detected for %s", course.name)
 
         course.last_checked_at = datetime.utcnow()
         course.last_check_status = "ok" if result["success"] else "error"
         db.session.add(snapshot)
 
-        # ── 2. Desired-time-window alert check ──
+        # ── Alert check ───────────────────────────────────────────────────────
         if course.has_time_preference:
-            _check_for_alerts(app, course, course_id, db, TeeTimeAlert,
-                              scrape_date_url, find_matching_slots,
-                              upcoming_desired_dates, has_date_param, _DAY_NAMES)
+            _run_alert_check(
+                course, course_id, db, TeeTimeAlert,
+                scrape_date_url, find_matching_slots,
+                upcoming_desired_dates, has_date_param, _DAY_NAMES, _inject_date,
+            )
 
         db.session.commit()
         logger.info("Checked %s: %d slots", course.name, len(result["slots"]))
 
 
-def _check_for_alerts(app, course, course_id, db, TeeTimeAlert,
-                      scrape_date_url, find_matching_slots,
-                      upcoming_desired_dates, has_date_param, _DAY_NAMES):
-    """Determine if any upcoming desired slots are available and create an alert."""
-    # Skip if an undismissed alert already exists — user hasn't acted yet
-    if TeeTimeAlert.query.filter_by(course_id=course_id, dismissed=False).first():
+def _run_alert_check(course, course_id, db, TeeTimeAlert,
+                     scrape_date_url, find_matching_slots,
+                     upcoming_desired_dates, has_date_param, _DAY_NAMES, _inject_date):
+    today_str = date.today().isoformat()
+
+    # Auto-dismiss alerts whose date has passed, or legacy alerts with no date
+    stale = TeeTimeAlert.query.filter_by(course_id=course_id, dismissed=False).filter(
+        db.or_(
+            TeeTimeAlert.matched_for_date.is_(None),
+            TeeTimeAlert.matched_for_date < today_str,
+        )
+    ).all()
+    for a in stale:
+        a.dismissed = True
+        a.dismissed_at = datetime.utcnow()
+        logger.info("Auto-dismissed stale alert #%d for %s", a.id, course.name)
+
+    # Skip if a current undismissed alert already exists
+    if TeeTimeAlert.query.filter_by(course_id=course_id, dismissed=False).filter(
+        TeeTimeAlert.matched_for_date >= today_str
+    ).first():
         return
 
-    desired_day_nums = set(range(7))  # default: any day
+    desired_day_nums = set(range(7))
     if course.desired_days_list:
         desired_day_nums = {
             _DAY_NAMES[d.lower()] for d in course.desired_days_list
             if d.lower() in _DAY_NAMES
         }
 
-    all_matched = []
+    rich_slots = []
 
     if has_date_param(course.url) and course.desired_days_list:
-        # URL has a date param — scrape each upcoming desired day directly
         for target_date in upcoming_desired_dates(desired_day_nums, weeks_ahead=3):
             date_result = scrape_date_url(course.url, target_date)
             if not date_result["success"] or not date_result["slots"]:
-                logger.debug("No slots for %s on %s", course.name, target_date)
                 continue
-            matched = find_matching_slots(
+            matched_times = find_matching_slots(
                 date_result["slots"],
                 course.desired_start_time,
                 course.desired_end_time,
-                # Day already guaranteed by the URL — no further day filter needed
             )
-            for slot in matched:
-                all_matched.append(f"{target_date.strftime('%a %b %d')} {slot}")
-
-            if all_matched:
-                break  # one hit is enough for one alert
+            for t in matched_times:
+                rich_slots.append({
+                    "time": t,
+                    "date": target_date.isoformat(),
+                    "label": f"{target_date.strftime('%a')} {target_date.strftime('%b')} {target_date.day}",
+                    "url": date_result["resolved_url"],
+                })
+            if rich_slots:
+                break  # alert on the nearest matching day
     else:
-        # No date param — check current slots against window
         from scraper import scrape_course
-        result = scrape_course(course.url)
-        if result["success"]:
-            all_matched = find_matching_slots(
-                result["slots"],
-                course.desired_start_time,
-                course.desired_end_time,
+        r = scrape_course(course.url)
+        if r["success"]:
+            matched_times = find_matching_slots(
+                r["slots"], course.desired_start_time, course.desired_end_time,
                 course.desired_days_list or None,
             )
+            for t in matched_times:
+                rich_slots.append({
+                    "time": t, "date": today_str,
+                    "label": "", "url": course.url,
+                })
 
-    if all_matched:
-        alert = TeeTimeAlert(course_id=course_id)
-        alert.matched_slots = all_matched
+    if rich_slots:
+        earliest_date = min(s["date"] for s in rich_slots)
+        alert = TeeTimeAlert(course_id=course_id, matched_for_date=earliest_date)
+        alert.matched_slots = rich_slots
         db.session.add(alert)
-        logger.info("ALERT created for %s: %s", course.name, all_matched)
+        logger.info("ALERT for %s: %s", course.name,
+                    [(s["label"], s["time"]) for s in rich_slots])
 
 
 def add_course_job(app, course):
-    """Schedule (or reschedule) periodic checks for a course."""
     job_id = f"course_{course.id}"
     scheduler.add_job(
         check_course,

@@ -1,11 +1,14 @@
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime, timezone
 
+import pytz
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import text
 
 from models import db, DAYS_OF_WEEK, GolfCourse, TeeTimeSnapshot, ReleaseEvent, TeeTimeAlert
+
+CENTRAL = pytz.timezone("America/Chicago")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,18 +23,38 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db.init_app(app)
 
 
+@app.template_filter("cst")
+def to_cst(dt):
+    """Convert a naive UTC datetime to Central time for display."""
+    if dt is None:
+        return "—"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local = dt.astimezone(CENTRAL)
+    return local.strftime("%b %-d, %Y %-I:%M %p %Z")
+
+
 def _run_migrations():
     """Add any new columns to existing tables without dropping data."""
     with db.engine.connect() as conn:
-        existing = {r[1] for r in conn.execute(text("PRAGMA table_info(golf_courses)")).fetchall()}
-        new_columns = {
+        # golf_courses new columns
+        gc_existing = {r[1] for r in conn.execute(text("PRAGMA table_info(golf_courses)")).fetchall()}
+        for col, col_type in {
             "desired_start_time": "VARCHAR(10)",
             "desired_end_time": "VARCHAR(10)",
             "desired_days": "VARCHAR(100) DEFAULT ''",
-        }
-        for col, col_type in new_columns.items():
-            if col not in existing:
+        }.items():
+            if col not in gc_existing:
                 conn.execute(text(f"ALTER TABLE golf_courses ADD COLUMN {col} {col_type}"))
+
+        # tee_time_alerts new columns
+        try:
+            ta_existing = {r[1] for r in conn.execute(text("PRAGMA table_info(tee_time_alerts)")).fetchall()}
+            if "matched_for_date" not in ta_existing:
+                conn.execute(text("ALTER TABLE tee_time_alerts ADD COLUMN matched_for_date VARCHAR(10)"))
+        except Exception:
+            pass  # table may not exist yet; create_all handles it
+
         conn.commit()
 
 
@@ -112,7 +135,8 @@ def course_detail(course_id):
         .all()
     )
     return render_template(
-        "course.html", course=course, snapshots=snapshots, events=events, alerts=alerts
+        "course.html", course=course, snapshots=snapshots, events=events, alerts=alerts,
+        today_str=date.today().isoformat()
     )
 
 
